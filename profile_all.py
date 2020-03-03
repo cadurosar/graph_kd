@@ -3,6 +3,7 @@ import argparse
 import torch
 import torch.nn as nn
 import utils
+import os
 
 
 def count_conv2d(m, x, y):
@@ -86,24 +87,26 @@ def profile(model, input_size, custom_ops = {}):
     return total_ops, total_params
 
 def main():
-    file = "checkpoint/GKD_28-10_teaches_28-1_0_0_p1_25_pool.pth"
-#    file = "checkpoint/WideResNet28-1.pth"
-    model = torch.load(file)["net"].module.cpu()
-    flops, params = profile(model, (1,3,32,32))
 
-    flops, params = flops.item(), params.item()
-    wideresnet_params = 36536884
-    wideresnet_flops = 10490553344
-    score_flops = flops/wideresnet_flops
-    score_params = params/wideresnet_params
-    score = (score_flops + score_params)/2
-    print("Flops: {}, Params: {}".format(flops,params))
-    print("Score flops: {} Score Params: {}".format(score_flops,score_params))
-    print("Final score: {}".format(score))
+    for filename in sorted(os.listdir('checkpoint')):
+        file = "checkpoint/{}".format(filename)
+        print(filename)
+        model = torch.load(file)["net"].module.cpu()
+        flops, params = profile(model, (1,3,32,32))
 
-    model = torch.load(file)["net"].module
-    trainloader, testloader = utils.load_data(128)
-    utils.test(model,testloader, "cuda", "no",show="error")
+        flops, params = flops.item(), params.item()
+        wideresnet_params = 36536884
+        wideresnet_flops = 10490553344
+        score_flops = flops/wideresnet_flops
+        score_params = params/wideresnet_params
+        score = (score_flops + score_params)/2
+        print("Flops: {}, Params: {}".format(flops,params))
+        print("Score flops: {} Score Params: {}".format(score_flops,score_params))
+        print("Final score: {}".format(score))
+
+        model = torch.load(file)["net"].module
+        trainloader, testloader = utils.load_data(128)
+        utils.test(model,testloader, "cuda", "no",show="error")
 
 if __name__ == "__main__":
     main()
