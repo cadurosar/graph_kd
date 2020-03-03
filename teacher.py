@@ -10,12 +10,19 @@ import models
 import models.preact_resnet
 from utils import progress_bar, load_data, train, test
 from torch.optim.lr_scheduler import MultiStepLR
-
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser(description='PyTorch CIFAR Training')
+    parser.add_argument('--depth', default=28, type=int, help='')
+    parser.add_argument('--width', default=1, type=float, help='')
+    parser.add_argument('--seed', default=0, type=int, help='')
+    
+    args = parser.parse_args()
+    save = "WideResNet{}-{}_{}".format(args.depth,args.width,args.seed)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     trainloader, testloader = load_data(128)
-    net = models.preact_resnet.PreActWideResNetStart(depth=28,width=10,num_classes=10)
+    net = models.preact_resnet.PreActWideResNetStart(depth=args.depth,width=args.width,num_classes=10)
     net = net.to(device)
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
@@ -25,7 +32,7 @@ def main():
     for epoch in range(200):
         print('Epoch: %d' % epoch)
         train(net,trainloader,scheduler, device, optimizer)
-        test(net,testloader, device, save_name="WideResNet28-10")
+        test(net,testloader, device, save_name=save)
 if __name__ == "__main__":
     main()
 

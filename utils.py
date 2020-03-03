@@ -182,7 +182,7 @@ def format_time(seconds):
         f = '0ms'
     return f
 
-def load_data(batch_size=128,is_cifar10=True):
+def load_data(batch_size=128,is_cifar10=True,batch_test=50):
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -202,7 +202,7 @@ def load_data(batch_size=128,is_cifar10=True):
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
     testset = dataset(root='~/data', train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=8, pin_memory=True)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_test, shuffle=False, num_workers=8, pin_memory=True)
 
     return trainloader, testloader
 
@@ -214,14 +214,14 @@ def to_one_hot(inp,num_classes):
     
     return y_onehot
 
-def get_distances(representations, sigma=1):
+def get_distances(representations):
     rview = representations.view(representations.size(0),-1)
     distances = torch.cdist(rview,rview,p=2)
     return distances
 
 
 
-def representations_to_adj(representations, sigma=1):
+def representations_to_adj(representations, k=128, A_final=None,mult=None):
     rview = representations.view(representations.size(0),-1)
     rview =  torch.nn.functional.normalize(rview, p=2, dim=1)
     adj = torch.mm(rview,torch.t(rview))
@@ -229,9 +229,25 @@ def representations_to_adj(representations, sigma=1):
     adj[ind[0], ind[1]] = torch.zeros(adj.shape[0]).cuda()
     degree = torch.pow(adj.sum(dim=1),-0.5)
     degree_matrix = torch.diag(degree)
-    return torch.matmul(degree_matrix,torch.matmul(adj,degree_matrix))
+    adj = torch.matmul(degree_matrix,torch.matmul(adj,degree_matrix))
+    if type(mult) == torch.Tensor:
+        adj = adj*mult
+    if k != 128:
+      if type(A_final) == torch.Tensor:
+        adj = adj*A_final
+      else:
+        y, ind = torch.sort(adj, 1)
+        A = torch.zeros(*y.size()).cuda()
+        k_biggest = ind[:,-k:].data
+        for index1,value in enumerate(k_biggest):
+            A_line = A[index1]
+            A_line[value] = 1
+        A_final = torch.min(torch.ones(*y.size()).cuda(),A+torch.t(A))
+        adj = adj*A_final
 
-def train(net,trainloader,scheduler,device,optimizer,teacher=None,lambda_hkd=0,lambda_gkd=0,lambda_rkd=0,pool3_only=False,temp=4,classes=10,power=1,k=128):
+    return adj,A_final
+
+def train(net,trainloader,scheduler,device,optimizer,teacher=None,lambda_hkd=0,lambda_gkd=0,lambda_rkd=0,pool3_only=False,temp=4,classes=10,power=1,k=128,intra_only=False,inter_only=False):
     net.train()
     train_loss = 0
     correct = 0
@@ -240,6 +256,8 @@ def train(net,trainloader,scheduler,device,optimizer,teacher=None,lambda_hkd=0,l
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         targets2 = to_one_hot(targets, classes)
+        intra_class = torch.matmul(targets2,targets2.T)
+        inter_class = 1 - intra_class
         targets = targets2.argmax(dim=1)
         optimizer.zero_grad()
         outputs, layers = net(inputs)
@@ -267,25 +285,11 @@ def train(net,trainloader,scheduler,device,optimizer,teacher=None,lambda_hkd=0,l
                     distances_student = distances_student[distances_student>0]
                     mean_student = distances_student.mean()
                     distances_student = distances_student/mean_student
-                    loss_rkd += lambda_rkd*F.smooth_l1_loss(distances_student, distances_teacher, reduction='elementwise_mean')
-                if not pool3_only:
-                    loss_rkd /= 3
-                loss += loss_rkd
-            if lambda_gkd > 0:
-                loss_gkd = 0 
-                zips = zip(layers,teacher_layers) if not pool3_only else zip([layers[-1]],[teacher_layers[-1]])
-                for student_layer,teacher_layer in zips:
-                    adj_teacher = representations_to_adj(teacher_layer)
-                    adj_student = representations_to_adj(student_layer)
-                    adj_teacher_p = adj_teacher
-                    adj_student_p = adj_student
-                    for _ in range(power-1):
-                        adj_teacher_p = torch.matmul(adj_teacher_p,adj_teacher)
-                        adj_student_p = torch.matmul(adj_student_p,adj_student)
-                    loss_gkd += lambda_gkd*F.mse_loss(adj_teacher, adj_student, reduction='elementwise_mean')
-                if not pool3_only:
-                    loss_gkd /= 3
-                loss += loss_gkd
+                    loss_rkd += lambda_rkd*F.smooth_l1_loss(distances_student, distances_teacher, reduction='none').mean()
+                loss += loss_rkd if pool3_only else loss_rkd/3
+            elif lambda_gkd > 0:
+                loss_gkd = do_gkd(pool3_only, layers, teacher_layers, k, power, intra_only, lambda_gkd, intra_class, inter_only, inter_class)
+                loss += loss_gkd if pool3_only else loss_gkd/3
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
@@ -296,6 +300,25 @@ def train(net,trainloader,scheduler,device,optimizer,teacher=None,lambda_hkd=0,l
         progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
             % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
     scheduler.step()
+
+def do_gkd(pool3_only, layers, teacher_layers, k, power, intra_only, lambda_gkd, intra_class, inter_only, inter_class):
+    loss_gkd = 0 
+    zips = zip(layers,teacher_layers) if not pool3_only else zip([layers[-1]],[teacher_layers[-1]])
+    mult = None
+    if intra_only:
+        mult=intra_class
+    elif inter_only:
+        mult=inter_class
+    for student_layer,teacher_layer in zips:
+        adj_teacher,A_final = representations_to_adj(teacher_layer,k,mult=mult)
+        adj_student,A_final = representations_to_adj(student_layer,k,A_final,mult=mult)
+        adj_teacher_p = adj_teacher
+        adj_student_p = adj_student
+        for _ in range(power-1):
+            adj_teacher_p = torch.matmul(adj_teacher_p,adj_teacher)
+            adj_student_p = torch.matmul(adj_student_p,adj_student)
+        loss_gkd += lambda_gkd*F.mse_loss(adj_teacher_p, adj_student_p, reduction='none').sum()
+    return loss_gkd
 
 def test(net,testloader, device,save_name="teacher",show="accuracy"):
     net.eval()

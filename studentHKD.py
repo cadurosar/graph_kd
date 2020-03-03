@@ -14,18 +14,23 @@ from torch.optim.lr_scheduler import MultiStepLR
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR Training')
+    parser.add_argument('--teacher_depth', default=28, type=int, help='')
+    parser.add_argument('--teacher_width', default=1, type=float, help='')
+    parser.add_argument('--depth', default=28, type=int, help='')
+    parser.add_argument('--width', default=0.5, type=float, help='')
     parser.add_argument('--hkd', default=0., type=float, help='')
     parser.add_argument('--temp', default=0., type=float, help='')
+    parser.add_argument('--seed', default=0., type=int, help='')
     args = parser.parse_args()
-    save = "HKD_28-10_teaches_28-1_{}_{}".format(args.hkd,args.temp)
+    save = "HKD_{}-{}_teaches_{}-{}_{}_{}".format(args.teacher_depth,args.teacher_width,args.depth,args.width,args.hkd,args.temp)
 
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     trainloader, testloader = load_data(128)
-    file = "checkpoint/WideResNet28-10.pth"
+    file = "checkpoint/WideResNet{}-{}_0.pth".format(args.teacher_depth,args.teacher_width)
     teacher = torch.load(file)["net"].module
     teacher = teacher.to(device)
-    net = models.preact_resnet.PreActWideResNetStart(depth=28,width=1,num_classes=10)
+    net = models.preact_resnet.PreActWideResNetStart(depth=args.depth,width=args.width,num_classes=10)
     net = net.to(device)
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
