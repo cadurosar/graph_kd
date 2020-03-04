@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-add_shortcut_to_outputs = False
+add_shortcut_to_outputs = True
 
 class ResnetBlock(nn.Module):
     '''Pre-activation version of the BasicBlock.'''
