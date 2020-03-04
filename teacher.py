@@ -22,13 +22,13 @@ def main():
     save = "WideResNet{}-{}_{}".format(args.depth,args.width,args.seed)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     trainloader, testloader = load_data(128)
-    net = models.preact_resnet.PreActWideResNetStart(depth=args.depth,width=args.width,num_classes=10)
+    net = models.preact_resnet.PreActWideResNetStart(depth=args.depth,width=args.width,num_classes=10,do_bn=True)
     net = net.to(device)
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
     optimizer = optim.SGD(net.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
-    scheduler = MultiStepLR(optimizer, milestones=[60, 120, 160], gamma=0.2)
+    scheduler = MultiStepLR(optimizer, milestones=[60,120,160], gamma=0.2)
     for epoch in range(200):
         print('Epoch: %d' % epoch)
         train(net,trainloader,scheduler, device, optimizer)

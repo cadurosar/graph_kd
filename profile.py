@@ -86,8 +86,8 @@ def profile(model, input_size, custom_ops = {}):
     return total_ops, total_params
 
 def main():
-    file = "checkpoint/GKD_28-10_teaches_28-1_0_0_p1_25_pool.pth"
-#    file = "checkpoint/WideResNet28-1.pth"
+#    file = "checkpoint/GKD_28-10_teaches_28-1_0_0_p1_25_pool.pth"
+    file = "checkpoint/WideResNet28-1_0.pth"
     model = torch.load(file)["net"].module.cpu()
     flops, params = profile(model, (1,3,32,32))
 

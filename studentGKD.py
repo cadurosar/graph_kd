@@ -36,13 +36,16 @@ def main():
     file = "checkpoint/WideResNet{}-{}_0.pth".format(args.teacher_depth,args.teacher_width)
     teacher = torch.load(file)["net"].module
     teacher = teacher.to(device)
-    net = models.preact_resnet.PreActWideResNetStart(depth=args.depth,width=args.width,num_classes=10)
+    print(teacher.do_bn)
+    net = models.preact_resnet.PreActWideResNetStart(depth=args.depth,width=args.width,num_classes=10, do_bn=False)
     net = net.to(device)
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
     optimizer = optim.SGD(net.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
-    scheduler = MultiStepLR(optimizer, milestones=[60, 120, 160], gamma=0.2)
+#    scheduler = MultiStepLR(optimizer, milestones=[60, 120, 160], gamma=0.2)
+#    scheduler = MultiStepLR(optimizer, milestones=[100, 110, 120, 130, 140,150,160,170,180,190], gamma=0.5)
+    scheduler = MultiStepLR(optimizer, milestones=[10,20,30,40], gamma=0.5)
     for epoch in range(200):
         print('Epoch: %d' % epoch)
         train(net,trainloader,scheduler, device, optimizer,teacher=teacher,lambda_hkd=args.hkd,lambda_gkd=args.gkd,temp=args.temp,classes=10,power=args.p,pool3_only=args.pool3,k=args.k,intra_only=args.intra_only,inter_only=args.inter_only)
