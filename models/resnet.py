@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+add_shortcut_to_outputs = False
+
 class ResnetBlock(nn.Module):
     '''Pre-activation version of the BasicBlock.'''
     expansion = 1
@@ -28,16 +30,20 @@ class ResnetBlock(nn.Module):
             )
 
     def forward(self, x):
+        outputs = list()
         out = self.conv1(x)
         out = self.bn1(out)
         out = F.relu(out)
-        out1 = out
+        outputs.append(out)
         out = self.conv2(out)
         out = self.bn2(out)
         shortcut = self.shortcut(x) if hasattr(self, 'shortcut') else x
+        if add_shortcut_to_outputs and hasattr(self, 'shortcut'):
+            outputs.append(shortcut)
         out = out + shortcut
         out = F.relu(out)
-        return out, [out1, out]
+        outputs.append(out)
+        return out, outputs
 
 
 class ResNet(nn.Module):
